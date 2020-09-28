@@ -2,6 +2,7 @@ package cache
 
 import (
 	"bytes"
+	"fmt"
 	"io/ioutil"
 	"runtime"
 	"strconv"
@@ -1141,6 +1142,274 @@ func TestDelete(t *testing.T) {
 	tc := New(DefaultExpiration, 0)
 	tc.Set("foo", "bar", DefaultExpiration)
 	tc.Delete("foo")
+	x, found := tc.Get("foo")
+	if found {
+		t.Error("foo was found, but it should have been deleted")
+	}
+	if x != nil {
+		t.Error("x is not nil:", x)
+	}
+}
+
+func TestDeleteWithValueInt64Equal(t *testing.T) {
+	tc := New(DefaultExpiration, 0)
+	v := time.Now().UnixNano()
+	tc.Set("foo", v, DefaultExpiration)
+	errno := tc.DeleteWithValueInt64("foo", v)
+	if errno == -2 {
+		t.Errorf("fail to delete foo, item expired")
+	}
+	if errno == -1 {
+		t.Errorf("fail to delete foo, not found")
+	}
+	if errno == 1 {
+		t.Errorf("fail to delete foo, not int64")
+	}
+	if errno == 2 {
+		t.Errorf("fail to delete foo, not equal")
+	}
+
+	x, found := tc.Get("foo")
+	if found {
+		t.Error("foo was found, but it should have been deleted")
+	}
+	if x != nil {
+		t.Error("x is not nil:", x)
+	}
+}
+
+func TestDeleteWithValueInt64Expired(t *testing.T) {
+	tc := New(DefaultExpiration, 0)
+	v := time.Now().UnixNano()
+	tc.Set("foo", v, time.Nanosecond*1)
+	errno := tc.DeleteWithValueInt64("foo", v)
+	if errno == 0 {
+		t.Errorf("succ to delete foo, item not expired")
+	}
+	if errno == -1 {
+		t.Errorf("fail to delete foo, not found")
+	}
+	if errno == 1 {
+		t.Errorf("fail to delete foo, not int64")
+	}
+	if errno == 2 {
+		t.Errorf("fail to delete foo, not equal")
+	}
+
+	x, found := tc.Get("foo")
+	if found {
+		t.Error("foo was found, but it should have been deleted")
+	}
+	if x != nil {
+		t.Error("x is not nil:", x)
+	}
+}
+
+func TestDeleteWithValueInt64NotFound(t *testing.T) {
+	tc := New(DefaultExpiration, 0)
+	v := time.Now().UnixNano()
+	// tc.Set("foo", v, DefaultExpiration)
+	errno := tc.DeleteWithValueInt64("foo", v)
+	if errno == 0 {
+		t.Errorf("succ to delete foo, item not expired")
+	}
+	if errno == -2 {
+		t.Errorf("fail to delete foo, item expired")
+	}
+	if errno == 1 {
+		t.Errorf("fail to delete foo, not int64")
+	}
+	if errno == 2 {
+		t.Errorf("fail to delete foo, not equal")
+	}
+
+	x, found := tc.Get("foo")
+	if found {
+		t.Error("foo was found, but it should have been deleted")
+	}
+	if x != nil {
+		t.Error("x is not nil:", x)
+	}
+}
+
+func TestDeleteWithValueInt64TypeNotEqual(t *testing.T) {
+	tc := New(DefaultExpiration, 0)
+	v := time.Now().UnixNano()
+	tc.Set("foo", v, DefaultExpiration)
+	errno := tc.DeleteWithValueInt64("foo", fmt.Sprintf("%d", v))
+	if errno == 0 {
+		t.Errorf("succ to delete foo, item not expired")
+	}
+	if errno == -2 {
+		t.Errorf("fail to delete foo, item expired")
+	}
+	if errno == -1 {
+		t.Errorf("fail to delete foo, not found")
+	}
+	if errno == 2 {
+		t.Errorf("fail to delete foo, not equal")
+	}
+
+	x, found := tc.Get("foo")
+	if found {
+		t.Error("foo was found, but it should have been deleted")
+	}
+	if x != nil {
+		t.Error("x is not nil:", x)
+	}
+}
+
+func TestDeleteWithValueInt64ValueNotEqual(t *testing.T) {
+	tc := New(DefaultExpiration, 0)
+	v := time.Now().UnixNano()
+	tc.Set("foo", v, DefaultExpiration)
+	errno := tc.DeleteWithValueInt64("foo", 1)
+	if errno == 0 {
+		t.Errorf("succ to delete foo, item not expired")
+	}
+	if errno == -2 {
+		t.Errorf("fail to delete foo, item expired")
+	}
+	if errno == -1 {
+		t.Errorf("fail to delete foo, not found")
+	}
+	if errno == 1 {
+		t.Errorf("fail to delete foo, not int64")
+	}
+	x, found := tc.Get("foo")
+	if found {
+		t.Error("foo was found, but it should have been deleted")
+	}
+	if x != nil {
+		t.Error("x is not nil:", x)
+	}
+}
+
+func TestDeleteWithValueStringEqual(t *testing.T) {
+	tc := New(DefaultExpiration, 0)
+	v := fmt.Sprintf("%d", time.Now().UnixNano())
+	tc.Set("foo", v, DefaultExpiration)
+	errno := tc.DeleteWithValueString("foo", v)
+	if errno == -2 {
+		t.Errorf("fail to delete foo, item expired")
+	}
+	if errno == -1 {
+		t.Errorf("fail to delete foo, not found")
+	}
+	if errno == 1 {
+		t.Errorf("fail to delete foo, not string")
+	}
+	if errno == 2 {
+		t.Errorf("fail to delete foo, not equal")
+	}
+
+	x, found := tc.Get("foo")
+	if found {
+		t.Error("foo was found, but it should have been deleted")
+	}
+	if x != nil {
+		t.Error("x is not nil:", x)
+	}
+}
+
+func TestDeleteWithValueStringExpired(t *testing.T) {
+	tc := New(DefaultExpiration, 0)
+	v := fmt.Sprintf("%d", time.Now().UnixNano())
+	tc.Set("foo", v, time.Nanosecond*1)
+	errno := tc.DeleteWithValueString("foo", v)
+	if errno == 0 {
+		t.Errorf("succ to delete foo, item not expired")
+	}
+	if errno == -1 {
+		t.Errorf("fail to delete foo, not found")
+	}
+	if errno == 1 {
+		t.Errorf("fail to delete foo, not string")
+	}
+	if errno == 2 {
+		t.Errorf("fail to delete foo, not equal")
+	}
+
+	x, found := tc.Get("foo")
+	if found {
+		t.Error("foo was found, but it should have been deleted")
+	}
+	if x != nil {
+		t.Error("x is not nil:", x)
+	}
+}
+
+func TestDeleteWithValueStringNotFound(t *testing.T) {
+	tc := New(DefaultExpiration, 0)
+	v := fmt.Sprintf("%d", time.Now().UnixNano())
+	// tc.Set("foo", v, DefaultExpiration)
+	errno := tc.DeleteWithValueString("foo", v)
+	if errno == 0 {
+		t.Errorf("succ to delete foo, item not expired")
+	}
+	if errno == -2 {
+		t.Errorf("fail to delete foo, item expired")
+	}
+	if errno == 1 {
+		t.Errorf("fail to delete foo, not string")
+	}
+	if errno == 2 {
+		t.Errorf("fail to delete foo, not equal")
+	}
+
+	x, found := tc.Get("foo")
+	if found {
+		t.Error("foo was found, but it should have been deleted")
+	}
+	if x != nil {
+		t.Error("x is not nil:", x)
+	}
+}
+
+func TestDeleteWithValueStringTypeNotEqual(t *testing.T) {
+	tc := New(DefaultExpiration, 0)
+	v := time.Now().UnixNano()
+	tc.Set("foo", fmt.Sprintf("%d", v), DefaultExpiration)
+	errno := tc.DeleteWithValueString("foo", v)
+	if errno == 0 {
+		t.Errorf("succ to delete foo, item not expired")
+	}
+	if errno == -2 {
+		t.Errorf("fail to delete foo, item expired")
+	}
+	if errno == -1 {
+		t.Errorf("fail to delete foo, not found")
+	}
+	if errno == 2 {
+		t.Errorf("fail to delete foo, not equal")
+	}
+
+	x, found := tc.Get("foo")
+	if found {
+		t.Error("foo was found, but it should have been deleted")
+	}
+	if x != nil {
+		t.Error("x is not nil:", x)
+	}
+}
+
+func TestDeleteWithValueStringValueNotEqual(t *testing.T) {
+	tc := New(DefaultExpiration, 0)
+	v := fmtSprintf("%d", time.Now().UnixNano())
+	tc.Set("foo", v, DefaultExpiration)
+	errno := tc.DeleteWithValueString("foo", "1")
+	if errno == 0 {
+		t.Errorf("succ to delete foo, item not expired")
+	}
+	if errno == -2 {
+		t.Errorf("fail to delete foo, item expired")
+	}
+	if errno == -1 {
+		t.Errorf("fail to delete foo, not found")
+	}
+	if errno == 1 {
+		t.Errorf("fail to delete foo, not string")
+	}
 	x, found := tc.Get("foo")
 	if found {
 		t.Error("foo was found, but it should have been deleted")

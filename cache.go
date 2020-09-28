@@ -10,11 +10,15 @@ import (
 	"time"
 )
 
+// Item 数据元 cache处理的最小单位
+// Object 用来存储具体的数据
+// Expiration 用来存储数据的过期时间 精确到纳秒
 type Item struct {
 	Object     interface{}
 	Expiration int64
 }
 
+// Expired 判断数据是否已过期
 // Returns true if the item has expired.
 func (item Item) Expired() bool {
 	if item.Expiration == 0 {
@@ -24,19 +28,23 @@ func (item Item) Expired() bool {
 }
 
 const (
+	// NoExpiration 永不过期
 	// For use with functions that take an expiration time.
 	NoExpiration time.Duration = -1
+	// DefaultExpiration 使用创建实例时设置的过期时间作为元素的过期时间
 	// For use with functions that take an expiration time. Equivalent to
 	// passing in the same expiration duration as was given to New() or
 	// NewFrom() when the cache was created (e.g. 5 minutes.)
 	DefaultExpiration time.Duration = 0
 )
 
+// Cache 存储数据的结构体，这只是个壳，真正的数据在cache中
 type Cache struct {
 	*cache
 	// If this is confusing, see the comment at the bottom of New()
 }
 
+// cache 存储数据的真正结构体
 type cache struct {
 	defaultExpiration time.Duration
 	items             map[string]Item
@@ -89,6 +97,7 @@ func (c *cache) SetDefault(k string, x interface{}) {
 
 // Add an item to the cache only if an item doesn't already exist for the given
 // key, or if the existing item has expired. Returns an error otherwise.
+// 相当于redis的setNX
 func (c *cache) Add(k string, x interface{}, d time.Duration) error {
 	c.mu.Lock()
 	_, found := c.get(k)
@@ -947,6 +956,7 @@ func (c *cache) DeleteExpired() {
 	}
 }
 
+// OnEvicted 指定一个方法，用来处理过期的数据
 // Sets an (optional) function that is called with the key and value when an
 // item is evicted from the cache. (Including when it is deleted manually, but
 // not when it is overwritten.) Set to nil to disable.
@@ -1034,6 +1044,9 @@ func (c *cache) LoadFile(fname string) error {
 	return fp.Close()
 }
 
+// Items 对cache加读锁，然后遍历整个c.items来获取全部未过期的数据，c.items中存储的数据量特别
+// 大的时候，此过程需要花费比较长的时间。
+// 当数据量较大时，此操作只适用于读多写少的场景，反之则应该慎用。
 // Copies all unexpired items in the cache into a new map and returns it.
 func (c *cache) Items() map[string]Item {
 	c.mu.RLock()
@@ -1052,6 +1065,10 @@ func (c *cache) Items() map[string]Item {
 	return m
 }
 
+// ItemCount 返回cache中的元素个数，其中可能包含已过期但未被清理掉的数据。
+// 此处每次都会实时计算c.items的长度，c.items是个map，map中有一个字段count专门
+// 用来存储map中的元素个数，所以使用len()来实时计算c.items的长度并不会造成过多
+// 的性能消耗
 // Returns the number of items in the cache. This may include items that have
 // expired, but have not yet been cleaned up.
 func (c *cache) ItemCount() int {
@@ -1061,11 +1078,86 @@ func (c *cache) ItemCount() int {
 	return n
 }
 
-// Delete all items from the cache.
+// Flush Delete all items from the cache.
 func (c *cache) Flush() {
 	c.mu.Lock()
 	c.items = map[string]Item{}
 	c.mu.Unlock()
+}
+
+// DeleteWithValueInt64 删除一个item之前，先判断此item中的值是否和提供的值n相同，
+// 相同则继续删除，否则放弃
+// 返回结果 -2|-1|0|1|2
+//   -2 找到了k对应的值，但是已经过期了
+//   -1 没有找到k对应的值
+//   0 成功删除了k对应的值
+//   1 类型不一致
+//   2 类型一致但是值不相等
+func (c *cache) DeleteWithValueInt64(k string, n int64) int {
+	var (
+		evicted bool
+	)
+	c.mu.Lock()
+	v, found := c.items[k]
+	if !found {
+		c.mu.Unlock()
+		return -1
+	}
+	if v.Expired() {
+		c.mu.Unlock()
+		return -2
+	}
+	rv, ok := v.Object.(int64)
+	if !ok {
+		c.mu.Unlock()
+		return 1
+	}
+	if rv == n {
+		_, evicted = c.delete(k)
+	} else {
+		c.mu.Unlock()
+		return 2
+	}
+	c.mu.Unlock()
+	if evicted {
+		c.onEvicted(k, v)
+	}
+	return 0
+}
+
+// DeleteWithValueString 删除一个item之前，先判断此item中的值是否和提供的值n相同，
+// 相同则继续删除，否则放弃
+// 同上面的DeleteWithValueInt64()
+func (c *cache) DeleteWithValueString(k string, n string) int {
+	var (
+		evicted bool
+	)
+	c.mu.Lock()
+	v, found := c.items[k]
+	if !found {
+		c.mu.Unlock()
+		return -1
+	}
+	if v.Expired() {
+		c.mu.Unlock()
+		return -2
+	}
+	rv, ok := v.Object.(string)
+	if !ok {
+		c.mu.Unlock()
+		return 1
+	}
+	if rv == n {
+		_, evicted = c.delete(k)
+	} else {
+		c.mu.Unlock()
+		return 2
+	}
+	c.mu.Unlock()
+	if evicted {
+		c.onEvicted(k, v)
+	}
+	return 0
 }
 
 type janitor struct {
@@ -1073,6 +1165,7 @@ type janitor struct {
 	stop     chan bool
 }
 
+// Run 清理过期数据的定时任务
 func (j *janitor) Run(c *cache) {
 	ticker := time.NewTicker(j.Interval)
 	for {
@@ -1100,7 +1193,9 @@ func runJanitor(c *cache, ci time.Duration) {
 }
 
 func newCache(de time.Duration, m map[string]Item) *cache {
+	//de == DefaultExpiration
 	if de == 0 {
+		//de = NoExpiration
 		de = -1
 	}
 	c := &cache{
@@ -1112,6 +1207,9 @@ func newCache(de time.Duration, m map[string]Item) *cache {
 
 func newCacheWithJanitor(de time.Duration, ci time.Duration, m map[string]Item) *Cache {
 	c := newCache(de, m)
+	// 此技巧可确保看门人goroutine（它（假定它已启用）永远在c上运行DeleteExpired）
+	// 不会阻止返回的C对象被垃圾回收。 当它被垃圾回收时，终结器停止看门程序，
+	// 然后可以收集c。
 	// This trick ensures that the janitor goroutine (which--granted it
 	// was enabled--is running DeleteExpired on c forever) does not keep
 	// the returned C object from being garbage collected. When it is
@@ -1125,6 +1223,10 @@ func newCacheWithJanitor(de time.Duration, ci time.Duration, m map[string]Item) 
 	return C
 }
 
+// New 返回一个新的cache实例，这个实例包含一个默认的过期时间和定时清理过期数据
+// 的时间间隔。如果过期时间小于1(或者等于NoExpiration)，则cache中的item将永不
+// 过期(默认情况下就是永不过期)，必须手动删除。如果定时清理过期数据的时间间隔小于1，
+// 那么在调用c.DeleteExpired()之前，过期的条目不会从缓存中删除。
 // Return a new cache with a given default expiration duration and cleanup
 // interval. If the expiration duration is less than one (or NoExpiration),
 // the items in the cache never expire (by default), and must be deleted
@@ -1135,7 +1237,7 @@ func New(defaultExpiration, cleanupInterval time.Duration) *Cache {
 	return newCacheWithJanitor(defaultExpiration, cleanupInterval, items)
 }
 
-// Return a new cache with a given default expiration duration and cleanup
+// NewFrom Return a new cache with a given default expiration duration and cleanup
 // interval. If the expiration duration is less than one (or NoExpiration),
 // the items in the cache never expire (by default), and must be deleted
 // manually. If the cleanup interval is less than one, expired items are not
